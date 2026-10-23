@@ -16,11 +16,8 @@ use ua_parser::{Extractor, Regexes};
 pub struct UserAgent<'a> {
     /// The client family, for example `Chrome`, or `Other` if unknown.
     pub family: Cow<'a, str>,
-    /// The major version.
     pub major: Option<Cow<'a, str>>,
-    /// The minor version.
     pub minor: Option<Cow<'a, str>>,
-    /// The patch version.
     pub patch: Option<Cow<'a, str>>,
 }
 
@@ -40,9 +37,7 @@ impl Default for UserAgent<'_> {
 pub struct Device<'a> {
     /// The device family, or `Other` if unknown.
     pub family: Cow<'a, str>,
-    /// The brand of the device.
     pub brand: Option<Cow<'a, str>>,
-    /// The model of the device.
     pub model: Option<Cow<'a, str>>,
 }
 
@@ -61,13 +56,9 @@ impl Default for Device<'_> {
 pub struct OS<'a> {
     /// The operating system family, or `Other` if unknown.
     pub family: Cow<'a, str>,
-    /// The major version.
     pub major: Option<Cow<'a, str>>,
-    /// The minor version.
     pub minor: Option<Cow<'a, str>>,
-    /// The patch version.
     pub patch: Option<Cow<'a, str>>,
-    /// The fourth version component.
     pub patch_minor: Option<Cow<'a, str>>,
 }
 
@@ -157,15 +148,19 @@ mod tests {
 
     use super::*;
 
-    /// Test cases shipped with uap-core, each a user agent and its expected values.
-    fn cases(file: &str) -> Vec<Value> {
+    /// Checks every case in one of uap-core's test files. `parse` returns the parsed fields in the
+    /// order of `keys`, and each must equal the expected value of that key.
+    fn check(file: &str, keys: &[&str], parse: impl Fn(&str) -> Vec<Option<String>>) {
         let path = format!("{}/uap-core/tests/{file}", env!("CARGO_MANIFEST_DIR"));
         let yaml: Value = serde_yaml::from_slice(&std::fs::read(path).unwrap()).unwrap();
-        yaml["test_cases"].as_sequence().unwrap().clone()
-    }
-
-    fn field(case: &Value, key: &str) -> Option<String> {
-        case[key].as_str().map(str::to_owned)
+        for case in yaml["test_cases"].as_sequence().unwrap() {
+            let input = case["user_agent_string"].as_str().unwrap();
+            let expected: Vec<_> = keys
+                .iter()
+                .map(|k| case[*k].as_str().map(str::to_owned))
+                .collect();
+            assert_eq!(parse(input), expected, "input: {input:?}");
+        }
     }
 
     fn owned(value: Option<Cow<'_, str>>) -> Option<String> {
@@ -174,71 +169,46 @@ mod tests {
 
     #[test]
     fn test_uap_core_user_agents() {
-        for case in cases("test_ua.yaml") {
-            let input = case["user_agent_string"].as_str().unwrap();
-            let ua = parse_user_agent(input);
-            assert_eq!(
-                (
-                    ua.family.into_owned(),
+        check(
+            "test_ua.yaml",
+            &["family", "major", "minor", "patch"],
+            |input| {
+                let ua = parse_user_agent(input);
+                vec![
+                    Some(ua.family.into_owned()),
                     owned(ua.major),
                     owned(ua.minor),
-                    owned(ua.patch)
-                ),
-                (
-                    field(&case, "family").unwrap(),
-                    field(&case, "major"),
-                    field(&case, "minor"),
-                    field(&case, "patch"),
-                ),
-                "input: {input:?}"
-            );
-        }
+                    owned(ua.patch),
+                ]
+            },
+        );
     }
 
     #[test]
     fn test_uap_core_operating_systems() {
-        for case in cases("test_os.yaml") {
-            let input = case["user_agent_string"].as_str().unwrap();
+        let keys = ["family", "major", "minor", "patch", "patch_minor"];
+        check("test_os.yaml", &keys, |input| {
             let os = parse_os(input);
-            assert_eq!(
-                (
-                    os.family.into_owned(),
-                    owned(os.major),
-                    owned(os.minor),
-                    owned(os.patch),
-                    owned(os.patch_minor),
-                ),
-                (
-                    field(&case, "family").unwrap(),
-                    field(&case, "major"),
-                    field(&case, "minor"),
-                    field(&case, "patch"),
-                    field(&case, "patch_minor"),
-                ),
-                "input: {input:?}"
-            );
-        }
+            vec![
+                Some(os.family.into_owned()),
+                owned(os.major),
+                owned(os.minor),
+                owned(os.patch),
+                owned(os.patch_minor),
+            ]
+        });
     }
 
     #[test]
     fn test_uap_core_devices() {
-        for case in cases("test_device.yaml") {
-            let input = case["user_agent_string"].as_str().unwrap();
+        check("test_device.yaml", &["family", "brand", "model"], |input| {
             let device = parse_device(input);
-            assert_eq!(
-                (
-                    device.family.into_owned(),
-                    owned(device.brand),
-                    owned(device.model)
-                ),
-                (
-                    field(&case, "family").unwrap(),
-                    field(&case, "brand"),
-                    field(&case, "model"),
-                ),
-                "input: {input:?}"
-            );
-        }
+            vec![
+                Some(device.family.into_owned()),
+                owned(device.brand),
+                owned(device.model),
+            ]
+        });
     }
 
     #[test]
